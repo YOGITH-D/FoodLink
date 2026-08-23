@@ -1,0 +1,6 @@
+# Old backed-up experiment artifacts, not part of the deployed app
+archive/
+.ipynb_checkpoints/
+
+# Local Claude Code session config, not part of the app
+.claude/
