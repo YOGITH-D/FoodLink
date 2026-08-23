@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'providers/auth_provider.dart';
 import 'providers/donation_provider.dart';
 import 'screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase with safety try-catch
+
+  // Initialize Firebase with safety try-catch. Falling back to local mock
+  // mode here (rather than crashing) is intentional: it keeps the app usable
+  // for local development even if firebase_options.dart is ever missing.
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     print("Firebase initialized successfully!");
   } catch (e) {
     print("Firebase initialization warning (Normal if config files are missing): $e");
