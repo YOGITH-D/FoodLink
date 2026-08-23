@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,7 +46,8 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
   String? _predictionError;
 
   final FocusNode _addressFocusNode = FocusNode();
-  bool _showSuggestions = false;
+  List<AddressSuggestion> _addressSuggestions = [];
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -53,9 +55,9 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
     _loadFoodTypes();
     _autoDetectLocation();
     _addressFocusNode.addListener(() {
-      setState(() {
-        _showSuggestions = _addressFocusNode.hasFocus;
-      });
+      if (!_addressFocusNode.hasFocus) {
+        setState(() => _addressSuggestions = []);
+      }
     });
   }
 
@@ -64,7 +66,28 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
     _quantityController.dispose();
     _addressController.dispose();
     _addressFocusNode.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  void _onAddressChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () async {
+      final results = await _locationService.searchAddress(query);
+      if (mounted) {
+        setState(() => _addressSuggestions = results);
+      }
+    });
+  }
+
+  void _selectSuggestion(AddressSuggestion suggestion) {
+    setState(() {
+      _addressController.text = suggestion.displayName;
+      _latitude = suggestion.latitude;
+      _longitude = suggestion.longitude;
+      _addressSuggestions = [];
+    });
+    _addressFocusNode.unfocus();
   }
 
   void _loadFoodTypes() async {
@@ -97,6 +120,17 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
         _addressController.text = address;
         _fetchingLocation = false;
       });
+      // accuracy == 0.0 is the signature of LocationService's fallback
+      // position (used when GPS is unavailable/denied) rather than a real
+      // device fix — let the user know instead of silently substituting it.
+      if (position.accuracy == 0.0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Could not access device GPS — using an approximate location. Please verify or search for the real pickup address above.'),
+            backgroundColor: Colors.amber[800],
+          ),
+        );
+      }
     } catch (_) {
       setState(() {
         _fetchingLocation = false;
@@ -550,44 +584,30 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
                       if (val == null || val.trim().isEmpty) return 'Enter pickup address';
                       return null;
                     },
-                    onChanged: (val) {
-                      setState(() {
-                        // Rebuild to update suggestion lists
-                      });
-                    },
+                    onChanged: _onAddressChanged,
                   ),
 
-                  // Custom suggestion list dropdown
-                  if (_showSuggestions && _addressController.text.isNotEmpty) ...[
+                  // Live suggestion list dropdown (real search results)
+                  if (_addressSuggestions.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Card(
                       elevation: 4,
                       clipBehavior: Clip.antiAlias,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       child: Container(
-                        constraints: const BoxConstraints(maxHeight: 180),
+                        constraints: const BoxConstraints(maxHeight: 220),
                         color: theme.colorScheme.surface,
                         child: ListView(
                           shrinkWrap: true,
                           padding: EdgeInsets.zero,
-                          children: _kAddressSuggestions
-                              .where((s) => s.address.toLowerCase().contains(_addressController.text.toLowerCase()))
-                              .map((suggestion) {
-                                return ListTile(
-                                  leading: const Icon(Icons.location_on, size: 16),
-                                  title: Text(suggestion.address, style: const TextStyle(fontSize: 13)),
-                                  dense: true,
-                                  onTap: () {
-                                    setState(() {
-                                      _addressController.text = suggestion.address;
-                                      _latitude = suggestion.latitude;
-                                      _longitude = suggestion.longitude;
-                                      _showSuggestions = false;
-                                      _addressFocusNode.unfocus();
-                                    });
-                                  },
-                                );
-                              }).toList(),
+                          children: _addressSuggestions.map((suggestion) {
+                            return ListTile(
+                              leading: const Icon(Icons.location_on, size: 16),
+                              title: Text(suggestion.displayName, style: const TextStyle(fontSize: 13)),
+                              dense: true,
+                              onTap: () => _selectSuggestion(suggestion),
+                            );
+                          }).toList(),
                         ),
                       ),
                     ),
@@ -683,68 +703,3 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
     );
   }
 }
-
-class AddressSuggestion {
-  final String address;
-  final double latitude;
-  final double longitude;
-
-  const AddressSuggestion({
-    required this.address,
-    required this.latitude,
-    required this.longitude,
-  });
-}
-
-const List<AddressSuggestion> _kAddressSuggestions = [
-  AddressSuggestion(
-    address: 'Taj Mahal Palace, Colaba, Mumbai, MH',
-    latitude: 18.9217,
-    longitude: 72.8330,
-  ),
-  AddressSuggestion(
-    address: 'Gateway of India, Colaba, Mumbai, MH',
-    latitude: 18.9230,
-    longitude: 72.8310,
-  ),
-  AddressSuggestion(
-    address: 'Chhatrapati Shivaji Terminus, Fort, Mumbai, MH',
-    latitude: 18.9400,
-    longitude: 72.8353,
-  ),
-  AddressSuggestion(
-    address: 'Vidhana Soudha, Ambedkar Veedhi, Bengaluru, KA',
-    latitude: 12.9796,
-    longitude: 77.5906,
-  ),
-  AddressSuggestion(
-    address: 'Lalbagh Botanical Garden, Mavalli, Bengaluru, KA',
-    latitude: 12.9507,
-    longitude: 77.5844,
-  ),
-  AddressSuggestion(
-    address: 'Indiranagar Club, 9th Main Road, Indiranagar, Bengaluru, KA',
-    latitude: 12.9719,
-    longitude: 77.6394,
-  ),
-  AddressSuggestion(
-    address: 'Phoenix Marketcity, Whitefield Road, Mahadevapura, Bengaluru, KA',
-    latitude: 12.9958,
-    longitude: 77.6963,
-  ),
-  AddressSuggestion(
-    address: 'Manyata Tech Park, Nagawara, Bengaluru, KA',
-    latitude: 13.0451,
-    longitude: 77.6266,
-  ),
-  AddressSuggestion(
-    address: 'Mall of Mysore, Indira Nagar, Mysuru, KA',
-    latitude: 12.3015,
-    longitude: 76.6651,
-  ),
-  AddressSuggestion(
-    address: 'Infosys Campus, Hebbal Industrial Area, Mysuru, KA',
-    latitude: 12.3500,
-    longitude: 76.5900,
-  ),
-];

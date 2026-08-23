@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -21,12 +22,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _addressController = TextEditingController();
 
   final LocationService _locationService = LocationService();
+  final FocusNode _addressFocusNode = FocusNode();
 
   String _selectedRole = 'receiver'; // 'provider' or 'receiver'
   double _latitude = 0.0;
   double _longitude = 0.0;
   bool _fetchingLocation = false;
   bool _obscurePassword = true;
+
+  List<AddressSuggestion> _addressSuggestions = [];
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _addressFocusNode.addListener(() {
+      if (!_addressFocusNode.hasFocus) {
+        setState(() => _addressSuggestions = []);
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -35,7 +50,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _passwordController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _addressFocusNode.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  void _onAddressChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () async {
+      final results = await _locationService.searchAddress(query);
+      if (mounted) {
+        setState(() => _addressSuggestions = results);
+      }
+    });
+  }
+
+  void _selectSuggestion(AddressSuggestion suggestion) {
+    setState(() {
+      _addressController.text = suggestion.displayName;
+      _latitude = suggestion.latitude;
+      _longitude = suggestion.longitude;
+      _addressSuggestions = [];
+    });
+    _addressFocusNode.unfocus();
   }
 
   // Detect and set address + coordinates using LocationService
@@ -59,8 +96,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
 
       if (mounted) {
+        // accuracy == 0.0 is the signature of LocationService's fallback
+        // position (used when GPS is unavailable/denied) rather than a
+        // real device fix — surface that distinction instead of claiming
+        // success either way.
+        final usedFallback = position.accuracy == 0.0;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location detected successfully!')),
+          SnackBar(
+            content: Text(
+              usedFallback
+                  ? 'Could not access device GPS — using an approximate location instead. You can type your real address above.'
+                  : 'Location detected successfully!',
+            ),
+            backgroundColor: usedFallback ? Colors.amber[800] : null,
+          ),
         );
       }
     } catch (e) {
@@ -294,9 +343,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   // Location Address Field
                   TextFormField(
                     controller: _addressController,
+                    focusNode: _addressFocusNode,
                     maxLines: 2,
                     decoration: InputDecoration(
                       labelText: 'Physical Address',
+                      helperText: 'Type to search, or tap the location icon to auto-detect',
                       prefixIcon: const Icon(Icons.location_on_outlined),
                       suffixIcon: _fetchingLocation
                           ? const Padding(
@@ -310,6 +361,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                       border: const OutlineInputBorder(),
                     ),
+                    onChanged: _onAddressChanged,
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return 'Please enter or detect your address';
@@ -317,7 +369,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       return null;
                     },
                   ),
-                  
+
+                  if (_addressSuggestions.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Card(
+                      elevation: 4,
+                      clipBehavior: Clip.antiAlias,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      child: Container(
+                        constraints: const BoxConstraints(maxHeight: 220),
+                        color: theme.colorScheme.surface,
+                        child: ListView(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          children: _addressSuggestions.map((suggestion) {
+                            return ListTile(
+                              leading: const Icon(Icons.location_on, size: 16),
+                              title: Text(suggestion.displayName, style: const TextStyle(fontSize: 13)),
+                              dense: true,
+                              onTap: () => _selectSuggestion(suggestion),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+
                   if (_latitude != 0.0 && _longitude != 0.0) ...[
                     const SizedBox(height: 8),
                     Text(

@@ -1,5 +1,19 @@
+import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
+
+class AddressSuggestion {
+  final String displayName;
+  final double latitude;
+  final double longitude;
+
+  const AddressSuggestion({
+    required this.displayName,
+    required this.latitude,
+    required this.longitude,
+  });
+}
 
 class LocationService {
   // Determine user's current GPS coordinates
@@ -50,6 +64,39 @@ class LocationService {
     } catch (_) {
       // Return generic coordinates string if geocoding fails
       return '$lat, $lng';
+    }
+  }
+
+  // Search for address suggestions as the user types, using OpenStreetMap's
+  // free Nominatim geocoding search (no API key required). Per Nominatim's
+  // usage policy, requests are capped to light/interactive use and must
+  // identify the app via User-Agent — callers should debounce keystrokes
+  // rather than calling this on every character.
+  Future<List<AddressSuggestion>> searchAddress(String query) async {
+    if (query.trim().length < 3) return [];
+
+    final url = Uri.parse(
+      'https://nominatim.openstreetmap.org/search'
+      '?q=${Uri.encodeQueryComponent(query)}&format=json&limit=5',
+    );
+
+    try {
+      final response = await http
+          .get(url, headers: {'User-Agent': 'FoodLink-App/1.0 (college project)'})
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return [];
+
+      final List<dynamic> results = jsonDecode(response.body);
+      return results
+          .map((r) => AddressSuggestion(
+                displayName: r['display_name'] as String,
+                latitude: double.parse(r['lat'] as String),
+                longitude: double.parse(r['lon'] as String),
+              ))
+          .toList();
+    } catch (_) {
+      return [];
     }
   }
 
