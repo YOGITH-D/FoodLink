@@ -40,14 +40,23 @@ class LocationService {
       return _getFallbackMockPosition();
     }
 
-    try {
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 5),
-      );
-    } catch (_) {
-      return _getFallbackMockPosition();
+    // A cold GPS/network location fix commonly takes longer than a few
+    // seconds on the very first request after permission is granted (the
+    // OS location provider needs to "warm up"). Try twice with a generous
+    // timeout before giving up and falling back to the mock position —
+    // a single short attempt was causing spurious fallbacks that a second
+    // manual tap would then resolve correctly.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 15),
+        );
+      } catch (_) {
+        // fall through to retry, or to the mock fallback below
+      }
     }
+    return _getFallbackMockPosition();
   }
 
   // Get address text from coordinates
