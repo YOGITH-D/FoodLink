@@ -103,6 +103,19 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  // Send a password reset email
+  Future<bool> sendPasswordResetEmail(String email) async {
+    _error = null;
+    try {
+      await _authService.sendPasswordResetEmail(email);
+      return true;
+    } catch (e) {
+      _error = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
   // Logout action
   Future<void> logout() async {
     _isLoading = true;

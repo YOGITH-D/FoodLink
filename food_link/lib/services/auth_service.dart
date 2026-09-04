@@ -155,6 +155,21 @@ class AuthService {
     }
   }
 
+  // Send a password reset email
+  Future<void> sendPasswordResetEmail(String email) async {
+    if (_isFirebaseAvailable) {
+      try {
+        await _firebaseAuth.sendPasswordResetEmail(email: email);
+      } on FirebaseAuthException catch (e) {
+        throw Exception(e.message ?? 'Failed to send reset email.');
+      }
+    } else {
+      if (!_mockUsers.any((u) => u.email.toLowerCase() == email.toLowerCase())) {
+        throw Exception('No account found for this email.');
+      }
+    }
+  }
+
   // Get current user details
   Future<AppUser?> getUserDetails(String uid) async {
     if (_isFirebaseAvailable) {

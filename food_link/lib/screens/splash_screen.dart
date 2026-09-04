@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/update_service.dart';
 import 'login_screen.dart';
 import 'provider/provider_dashboard.dart';
 import 'receiver/receiver_dashboard.dart';
@@ -13,15 +14,83 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final UpdateService _updateService = UpdateService();
+
   @override
   void initState() {
     super.initState();
     _navigateToNext();
   }
 
+  Future<void> _checkForUpdate() async {
+    final update = await _updateService.checkForUpdate();
+    if (update == null || !mounted) return;
+
+    final shouldUpdate = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Update available (v${update.version})'),
+        content: Text(
+          update.releaseNotes.isNotEmpty
+              ? update.releaseNotes
+              : 'A newer version of FoodLink is available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Later'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldUpdate != true || !mounted) return;
+    await _downloadAndInstall(update);
+  }
+
+  Future<void> _downloadAndInstall(UpdateInfo update) async {
+    final progressNotifier = ValueNotifier<double>(0);
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Downloading update'),
+        content: ValueListenableBuilder<double>(
+          valueListenable: progressNotifier,
+          builder: (context, value, child) => LinearProgressIndicator(value: value > 0 ? value : null),
+        ),
+      ),
+    );
+
+    try {
+      final filePath = await _updateService.downloadApk(
+        update.downloadUrl,
+        onProgress: (p) => progressNotifier.value = p,
+      );
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // close progress dialog
+      await _updateService.installApk(filePath);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Update failed: $e')),
+      );
+    }
+  }
+
   Future<void> _navigateToNext() async {
     // Artificial splash delay for visual branding
     await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+
+    await _checkForUpdate();
     if (!mounted) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
